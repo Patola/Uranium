@@ -7,10 +7,12 @@ import os.path
 import re
 import shutil
 import tempfile
-from typing import Dict, Generator, List, Optional, cast
+from typing import Dict, Generator, List, Optional, Union, cast
 
 from UM.Logger import Logger
 from UM.Platform import Platform
+from UM.Version import Version
+
 
 class ResourceTypeError(Exception):
     pass
@@ -48,6 +50,8 @@ class Resources:
     Plugins = 12
     ## Location of data regarding bundled packages
     BundledPackages = 13
+    ## Location of text files
+    Texts = 14
 
     ## Any custom resource types should be greater than this to prevent collisions with standard types.
     UserType = 128
@@ -161,7 +165,6 @@ class Resources:
         if cls.__config_storage_path is None or cls.__data_storage_path is None:
             cls.__initializeStoragePaths()
 
-        path = None
         # Special casing for Linux, since configuration should be stored in ~/.config but data should be stored in ~/.local/share
         if resource_type == cls.Preferences:
             path = cls.__config_storage_path
@@ -416,7 +419,6 @@ class Resources:
         if cls.ApplicationVersion == "master" or cls.ApplicationVersion == "unknown":
             storage_dir_name = os.path.join(cls.ApplicationIdentifier, cls.ApplicationVersion)
         else:
-            from UM.Version import Version
             version = Version(cls.ApplicationVersion)
             storage_dir_name = os.path.join(cls.ApplicationIdentifier, "%s.%s" % (version.getMajor(), version.getMinor()))
 
@@ -462,8 +464,8 @@ class Resources:
 
         Logger.log("d", "Found config: %s and data: %s", config_root_path_list, data_root_path_list)
 
-        latest_config_path = Resources._findLatestDirInPaths(config_root_path_list, dir_type="config")
-        latest_data_path = Resources._findLatestDirInPaths(data_root_path_list, dir_type="data")
+        latest_config_path = Resources._findLatestDirInPaths(config_root_path_list, dir_type = "config")
+        latest_data_path = Resources._findLatestDirInPaths(data_root_path_list, dir_type = "data")
         Logger.log("d", "Latest config path: %s and latest data path: %s", latest_config_path, latest_data_path)
         if not latest_config_path:
             # No earlier storage dirs found, do nothing
@@ -510,38 +512,49 @@ class Resources:
 
     @classmethod
     def _findLatestDirInPaths(cls, search_path_list: List[str], dir_type: str = "config") -> Optional[str]:
-        # version dir name must match: <digit(s)>.<digit(s)><whatever>
-        version_regex = re.compile(r'^[0-9]+\.[0-9]+.*$')
+        # version dir name must match: <digit(s)>.<digit(s)>
+        version_regex = re.compile(r"^[0-9]+\.[0-9]+$")
         check_dir_type_func_dict = {
             "data": Resources._isNonVersionedDataDir,
             "config": Resources._isNonVersionedConfigDir
         }
         check_dir_type_func = check_dir_type_func_dict[dir_type]
 
-        latest_config_path = None
+        # CURA-6744
+        # If the application version matches "<major>.<minor>", create a Version object for it for comparison, so we
+        # can find the directory with the highest version that's below the application version.
+        # An application version that doesn't match "<major>.<minor>", e.g. "master", probably indicates a temporary
+        # version, and in this case, this temporary version is treated as the latest version. It will ONLY upgrade from
+        # a highest "<major>.<minor>" version if it's present.
+        # For app version, there can be extra version strings at the end. For comparison, we only want the
+        # "<major>.<minor>.<patch>" part. Here we use a regex to find that part in the app version string.
+        semantic_version_regex = re.compile(r"(^[0-9]+\.([0-9]+)*).*$")
+        app_version = None  # type: Optional[Version]
+        app_version_str = cls.ApplicationVersion
+        if app_version_str is not None:
+            result = semantic_version_regex.match(app_version_str)
+            if result is not None:
+                app_version_str = result.group(0)
+                app_version = Version(app_version_str)
+
+        latest_config_path = None  # type: Optional[str]
         for search_path in search_path_list:
             if not os.path.exists(search_path):
                 continue
 
             # Give priority to a folder with files with version number in it
             storage_dir_name_list = next(os.walk(search_path))[1]
-            if storage_dir_name_list:
-                storage_dir_name_list = sorted(storage_dir_name_list, reverse=True)
-                # for now we use alphabetically ordering to determine the latest version (excluding master)
-                for dir_name in storage_dir_name_list:
-                    if dir_name.endswith("master"):
-                        continue
-                    if version_regex.match(dir_name) is None:
-                        continue
 
-                    # make sure that the version we found is not newer than the current version
-                    if version_regex.match(cls.ApplicationVersion):
-                        later_version = sorted([cls.ApplicationVersion, dir_name], reverse=True)[0]
-                        if cls.ApplicationVersion != later_version:
-                            continue
+            match_dir_name_list = [n for n in storage_dir_name_list if version_regex.match(n) is not None]
+            match_dir_version_list = [{"dir_name": n, "version": Version(n)} for n in match_dir_name_list]  # type: List[Dict[str, Union[str, Version]]]
+            match_dir_version_list = sorted(match_dir_version_list, key = lambda x: x["version"], reverse = True)
+            if app_version is not None:
+                match_dir_version_list = list(x for x in match_dir_version_list if x["version"] < app_version)
 
-                    latest_config_path = os.path.join(search_path, dir_name)
-                    break
+            if len(match_dir_version_list) > 0:
+                if isinstance(match_dir_version_list[0]["dir_name"], str):
+                    latest_config_path = os.path.join(search_path, match_dir_version_list[0]["dir_name"])  # type: ignore
+
             if latest_config_path is not None:
                 break
 
@@ -591,6 +604,7 @@ class Resources:
         ContainerStacks: "stacks",
         Plugins: "plugins",
         BundledPackages: "bundled_packages",
+        Texts: "texts",
     } #type: Dict[int, str]
     __types_storage = {
         Resources: "",

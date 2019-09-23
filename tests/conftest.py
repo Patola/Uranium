@@ -19,7 +19,7 @@ class FixtureApplication(Application):
     engineCreatedSignal = Signal()
 
     def __init__(self):
-        super().__init__(name = "test", version = "1.0", api_version = "5.0.0")
+        super().__init__(name = "test", version = "1.0", api_version = "6.0.0")
         super().initialize()
         Signal._signalQueue = self
 
@@ -34,6 +34,9 @@ class FixtureApplication(Application):
 
     def getRenderer(self):
         return MagicMock()
+
+    def showMessage(self, message):
+        pass
 
 @pytest.fixture()
 def application():

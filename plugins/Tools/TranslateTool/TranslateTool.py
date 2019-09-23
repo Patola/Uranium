@@ -16,7 +16,10 @@ from UM.Scene.Selection import Selection
 from UM.Scene.ToolHandle import ToolHandle
 from UM.Tool import Tool
 
-from . import TranslateToolHandle
+try:
+    from . import TranslateToolHandle
+except (ImportError, SystemError):
+    import TranslateToolHandle  # type: ignore  # This fixes the tests not being able to import.
 
 
 DIMENSION_TOLERANCE = 0.0001  # Tolerance value used for comparing dimensions from the UI.
@@ -79,7 +82,8 @@ class TranslateTool(Tool):
             return float(Selection.getBoundingBox().bottom)
         return 0.0
 
-    def _parseInt(self, str_value: str) -> float:
+    @staticmethod
+    def _parseFloat(str_value: str) -> float:
         try:
             parsed_value = float(str_value)
         except ValueError:
@@ -90,56 +94,78 @@ class TranslateTool(Tool):
     #   the selection bounding box center.
     #   \param x Location in mm.
     def setX(self, x: str) -> None:
-        parsed_x = self._parseInt(x)
+        parsed_x = self._parseFloat(x)
         bounding_box = Selection.getBoundingBox()
 
-        op = GroupedOperation()
         if not Float.fuzzyCompare(parsed_x, float(bounding_box.center.x), DIMENSION_TOLERANCE):
-            for selected_node in self._getSelectedObjectsWithoutSelectedAncestors():
-                world_position = selected_node.getWorldPosition()
-                new_position = world_position.set(x = parsed_x + (world_position.x - bounding_box.center.x))
-                node_op = TranslateOperation(selected_node, new_position, set_position = True)
-                op.addOperation(node_op)
-            op.push()
+            selected_nodes = self._getSelectedObjectsWithoutSelectedAncestors()
+            if len(selected_nodes) > 1:
+                op = GroupedOperation()
+                for selected_node in self._getSelectedObjectsWithoutSelectedAncestors():
+                    world_position = selected_node.getWorldPosition()
+                    new_position = world_position.set(x = parsed_x + (world_position.x - bounding_box.center.x))
+                    node_op = TranslateOperation(selected_node, new_position, set_position = True)
+                    op.addOperation(node_op)
+                op.push()
+            else:
+                for selected_node in self._getSelectedObjectsWithoutSelectedAncestors():
+                    world_position = selected_node.getWorldPosition()
+                    new_position = world_position.set(x = parsed_x + (world_position.x - bounding_box.center.x))
+                    TranslateOperation(selected_node, new_position, set_position = True).push()
+
         self._controller.toolOperationStopped.emit(self)
 
     ##  Set the y-location of the selected object(s) by translating relative to
     #   the selection bounding box center.
     #   \param y Location in mm.
     def setY(self, y: str) -> None:
-        parsed_y = self._parseInt(y)
+        parsed_y = self._parseFloat(y)
         bounding_box = Selection.getBoundingBox()
 
-        op = GroupedOperation()
         if not Float.fuzzyCompare(parsed_y, float(bounding_box.center.z), DIMENSION_TOLERANCE):
-            for selected_node in self._getSelectedObjectsWithoutSelectedAncestors():
-                # Note; The switching of z & y is intentional. We display z as up for the user,
-                # But store the data in openGL space.
-                world_position = selected_node.getWorldPosition()
-                new_position = world_position.set(z = parsed_y + (world_position.z - bounding_box.center.z))
+            selected_nodes = self._getSelectedObjectsWithoutSelectedAncestors()
+            if len(selected_nodes) > 1:
+                op = GroupedOperation()
+                for selected_node in selected_nodes:
+                    # Note; The switching of z & y is intentional. We display z as up for the user,
+                    # But store the data in openGL space.
+                    world_position = selected_node.getWorldPosition()
+                    new_position = world_position.set(z = parsed_y + (world_position.z - bounding_box.center.z))
+                    node_op = TranslateOperation(selected_node, new_position, set_position = True)
+                    op.addOperation(node_op)
+                op.push()
+            else:
+                for selected_node in selected_nodes:
+                    world_position = selected_node.getWorldPosition()
+                    new_position = world_position.set(z = parsed_y + (world_position.z - bounding_box.center.z))
+                    TranslateOperation(selected_node, new_position, set_position = True).push()
 
-                node_op = TranslateOperation(selected_node, new_position, set_position = True)
-                op.addOperation(node_op)
-            op.push()
         self._controller.toolOperationStopped.emit(self)
 
     ##  Set the y-location of the selected object(s) by translating relative to
     #   the selection bounding box bottom.
     #   \param z Location in mm.
     def setZ(self, z: str) -> None:
-        parsed_z = self._parseInt(z)
+        parsed_z = self._parseFloat(z)
         bounding_box = Selection.getBoundingBox()
 
-        op = GroupedOperation()
         if not Float.fuzzyCompare(parsed_z, float(bounding_box.bottom), DIMENSION_TOLERANCE):
-            for selected_node in self._getSelectedObjectsWithoutSelectedAncestors():
-                # Note: The switching of z & y is intentional. We display z as up for the user,
-                # But store the data in openGL space.
-                world_position = selected_node.getWorldPosition()
-                new_position = world_position.set(y = parsed_z + (world_position.y - bounding_box.bottom))
-                node_op = TranslateOperation(selected_node, new_position, set_position = True)
-                op.addOperation(node_op)
-            op.push()
+            selected_nodes = self._getSelectedObjectsWithoutSelectedAncestors()
+            if len(selected_nodes) > 1:
+                op = GroupedOperation()
+                for selected_node in selected_nodes:
+                    # Note: The switching of z & y is intentional. We display z as up for the user,
+                    # But store the data in openGL space.
+                    world_position = selected_node.getWorldPosition()
+                    new_position = world_position.set(y = parsed_z + (world_position.y - bounding_box.bottom))
+                    node_op = TranslateOperation(selected_node, new_position, set_position = True)
+                    op.addOperation(node_op)
+                op.push()
+            else:
+                for selected_node in selected_nodes:
+                    world_position = selected_node.getWorldPosition()
+                    new_position = world_position.set(y=parsed_z + (world_position.y - bounding_box.bottom))
+                    TranslateOperation(selected_node, new_position, set_position=True).push()
         self._controller.toolOperationStopped.emit(self)
 
     ##  Set which axis/axes are enabled for the current translate operation
@@ -160,21 +186,21 @@ class TranslateTool(Tool):
         total_size = Selection.getCount()
         false_state_counter = 0
         true_state_counter = 0
-        if Selection.hasSelection():
-            for selected_node in self._getSelectedObjectsWithoutSelectedAncestors():
-                if selected_node.getSetting(SceneNodeSettings.LockPosition, "False") != "False":
-                    true_state_counter += 1
-                else:
-                    false_state_counter += 1
+        if not Selection.hasSelection():
+            return False
 
-            if total_size == false_state_counter: # if no locked positions
-                return False
-            elif total_size == true_state_counter: # if all selected objects are locked
-                return True
+        for selected_node in self._getSelectedObjectsWithoutSelectedAncestors():
+            if selected_node.getSetting(SceneNodeSettings.LockPosition, "False") != "False":
+                true_state_counter += 1
             else:
-                return "partially"  # if at least one is locked
+                false_state_counter += 1
 
-        return False
+        if total_size == false_state_counter:  # No locked positions
+            return False
+        elif total_size == true_state_counter:  # All selected objects are locked
+            return True
+        else:
+            return "partially"  # At least one, but not all are locked
 
     ##  Handle mouse and keyboard events.
     #   \param event The event to handle.
@@ -272,12 +298,17 @@ class TranslateTool(Tool):
                     self._distance = Vector(0, 0, 0)
                     self.operationStarted.emit(self)
 
-                op = GroupedOperation()
-                for node in self._getSelectedObjectsWithoutSelectedAncestors():
-                    if node.getSetting(SceneNodeSettings.LockPosition, "False") == "False":
-                        op.addOperation(TranslateOperation(node, drag))
-
-                op.push()
+                selected_nodes = self._getSelectedObjectsWithoutSelectedAncestors()
+                if len(selected_nodes) > 1:
+                    op = GroupedOperation()
+                    for node in selected_nodes:
+                        if node.getSetting(SceneNodeSettings.LockPosition, "False") == "False":
+                            op.addOperation(TranslateOperation(node, drag))
+                    op.push()
+                else:
+                    for node in selected_nodes:
+                        if node.getSetting(SceneNodeSettings.LockPosition, "False") == "False":
+                            TranslateOperation(node, drag).push()
 
                 if not self._distance:
                     self._distance = Vector(0, 0, 0)

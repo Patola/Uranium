@@ -8,6 +8,8 @@ import UM.Settings.SettingFunction
 import UM.Settings.SettingDefinition
 import UM.Settings.SettingInstance
 
+from copy import deepcopy
+
 
 ##  A very basic copy of the instance container.
 #
@@ -35,6 +37,9 @@ class MockContainer():
 
     def addInstance(self, instance):
         self._instances.append(instance)
+
+    def isDirty(self):
+        return True
 
 @pytest.fixture
 def setting_definition():
@@ -103,3 +108,31 @@ def test_validationState(data, instance_container):
     instance.setProperty("value", data["value"])
 
     assert instance.validationState(instance_container) == data["state"]
+
+
+def test_getNonExistingAttribute(setting_definition, instance_container):
+    instance = UM.Settings.SettingInstance.SettingInstance(setting_definition, instance_container)
+
+    with pytest.raises(AttributeError):
+        instance.blarg
+
+
+def test_compare(setting_definition, instance_container):
+    instance = UM.Settings.SettingInstance.SettingInstance(setting_definition, instance_container)
+    instance_container.addInstance(instance)
+    assert instance != 12
+
+    instance2 = deepcopy(instance)
+    assert instance == instance2
+    instance_container.addInstance(instance2)
+    instance2.setProperty("maximum_value", 2000.0)
+
+    # The direction should not matter (Before adding this test it did, so best to leave it in!)
+    # In this case, we are testing instance 2 having the max_value property, but instance doesn't have it.
+    assert instance2 != instance
+    assert instance != instance2
+
+    instance.setProperty("maximum_value", 9001)
+    # In this case, we are testing instance 2 having the max_value property, but instance doesn't have it.
+    assert instance2 != instance
+    assert instance != instance2

@@ -1,4 +1,4 @@
-# Copyright (c) 2015 Ultimaker B.V.
+# Copyright (c) 2019 Ultimaker B.V.
 # Uranium is released under the terms of the LGPLv3 or higher.
 from typing import List, Tuple, TYPE_CHECKING, Optional
 
@@ -16,7 +16,10 @@ from UM.Operations.GroupedOperation import GroupedOperation
 from UM.Operations.SetTransformOperation import SetTransformOperation
 
 from PyQt5.QtCore import Qt
-from . import ScaleToolHandle
+try:
+    from . import ScaleToolHandle
+except (ImportError, SystemError):
+    import ScaleToolHandle  # type: ignore  # This fixes the tests not being able to import.
 
 import scipy
 if TYPE_CHECKING:
@@ -129,6 +132,13 @@ class ScaleTool(Tool):
 
             drag_position = self.getDragPosition(event.x, event.y)
             if drag_position:
+                if self.getLockedAxis() == ToolHandle.XAxis:
+                    drag_position = drag_position.set(y = 0, z = 0)
+                elif self.getLockedAxis() == ToolHandle.YAxis:
+                    drag_position = drag_position.set(x = 0, z = 0)
+                elif self.getLockedAxis() == ToolHandle.ZAxis:
+                    drag_position = drag_position.set(x = 0, y = 0)
+
                 drag_length = (drag_position - self._saved_handle_position).length()
                 if self._drag_length > 0:
                     drag_change = (drag_length - self._drag_length) / 100 * self._scale_speed
@@ -166,10 +176,14 @@ class ScaleTool(Tool):
                             scale_change = scale_change.set(x=scale_factor, y=scale_factor, z=scale_factor)
 
                         # Scale around the saved centers of all selected nodes
-                        op = GroupedOperation()
-                        for node, position in self._saved_node_positions:
-                            op.addOperation(ScaleOperation(node, scale_change, relative_scale = True, scale_around_point = position))
-                        op.push()
+                        if len(self._saved_node_positions) > 1:
+                            op = GroupedOperation()
+                            for node, position in self._saved_node_positions:
+                                op.addOperation(ScaleOperation(node, scale_change, relative_scale = True, scale_around_point = position))
+                            op.push()
+                        else:
+                            for node, position in self._saved_node_positions:
+                                ScaleOperation(node, scale_change, relative_scale = True, scale_around_point = position).push()
                         self._drag_length = (self._saved_handle_position - drag_position).length()
                 else:
                     self.operationStarted.emit(self)
@@ -290,12 +304,7 @@ class ScaleTool(Tool):
                 else:
                     scale_vector = Vector(scale_factor, scale_factor, scale_factor)
 
-                op = GroupedOperation()
-                for node in self._getSelectedObjectsWithoutSelectedAncestors():
-                    op.addOperation(
-                        ScaleOperation(node, scale_vector, scale_around_point=node.getWorldPosition()))
-                op.push()
-
+                self._scaleSelectedNodes(scale_vector)
     ##  Set the height of the selected object(s) by scaling the first selected object to a certain height
     #
     #   \param height type(float) height in mm
@@ -311,11 +320,7 @@ class ScaleTool(Tool):
                 else:
                     scale_vector = Vector(scale_factor, scale_factor, scale_factor)
 
-                op = GroupedOperation()
-                for node in self._getSelectedObjectsWithoutSelectedAncestors():
-                    op.addOperation(
-                        ScaleOperation(node, scale_vector, scale_around_point=node.getWorldPosition()))
-                op.push()
+                self._scaleSelectedNodes(scale_vector)
 
     ##  Set the depth of the selected object(s) by scaling the first selected object to a certain depth
     #
@@ -332,11 +337,7 @@ class ScaleTool(Tool):
                 else:
                     scale_vector = Vector(scale_factor, scale_factor, scale_factor)
 
-                op = GroupedOperation()
-                for node in self._getSelectedObjectsWithoutSelectedAncestors():
-                    op.addOperation(
-                        ScaleOperation(node, scale_vector, scale_around_point=node.getWorldPosition()))
-                op.push()
+                self._scaleSelectedNodes(scale_vector)
 
     ##  Set the x-scale of the selected object(s) by scaling the first selected object to a certain factor
     #
@@ -352,11 +353,7 @@ class ScaleTool(Tool):
                 else:
                     scale_vector = Vector(scale_factor, scale_factor, scale_factor)
 
-                op = GroupedOperation()
-                for node in self._getSelectedObjectsWithoutSelectedAncestors():
-                    op.addOperation(
-                        ScaleOperation(node, scale_vector, scale_around_point=node.getWorldPosition()))
-                op.push()
+                self._scaleSelectedNodes(scale_vector)
 
     ##  Set the y-scale of the selected object(s) by scaling the first selected object to a certain factor
     #
@@ -372,11 +369,7 @@ class ScaleTool(Tool):
                 else:
                     scale_vector = Vector(scale_factor, scale_factor, scale_factor)
 
-                op = GroupedOperation()
-                for node in self._getSelectedObjectsWithoutSelectedAncestors():
-                    op.addOperation(
-                        ScaleOperation(node, scale_vector, scale_around_point=node.getWorldPosition()))
-                op.push()
+                self._scaleSelectedNodes(scale_vector)
 
     ##  Set the z-scale of the selected object(s) by scaling the first selected object to a certain factor
     #
@@ -392,11 +385,18 @@ class ScaleTool(Tool):
                 else:
                     scale_vector = Vector(scale_factor, scale_factor, scale_factor)
 
-                op = GroupedOperation()
-                for node in self._getSelectedObjectsWithoutSelectedAncestors():
-                    op.addOperation(
-                        ScaleOperation(node, scale_vector, scale_around_point=node.getWorldPosition()))
-                op.push()
+                self._scaleSelectedNodes(scale_vector)
+
+    def _scaleSelectedNodes(self, scale_vector: Vector) -> None:
+        selected_nodes = self._getSelectedObjectsWithoutSelectedAncestors()
+        if len(selected_nodes) > 1:
+            op = GroupedOperation()
+            for node in selected_nodes:
+                op.addOperation(ScaleOperation(node, scale_vector, scale_around_point=node.getWorldPosition()))
+            op.push()
+        else:
+            for node in selected_nodes:
+                ScaleOperation(node, scale_vector, scale_around_point=node.getWorldPosition()).push()
 
     ##  Convenience function that gives the scale of an object in the coordinate space of the world.
     #   The function might return wrong value if the grouped models are rotated

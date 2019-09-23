@@ -10,7 +10,7 @@ from UM.Qt.QtMouseDevice import QtMouseDevice
 from UM.Qt.QtKeyDevice import QtKeyDevice
 from UM.Application import Application
 from UM.Signal import Signal, signalemitter
-
+from UM.Scene.Camera import Camera
 from typing import Optional
 
 
@@ -104,6 +104,11 @@ class MainWindow(QQuickWindow):
             self.setVisibility(QQuickWindow.FullScreen)  # Go to fullscreen
         self._fullscreen = not self._fullscreen
 
+    @pyqtSlot()
+    def exitFullscreen(self):
+        self.setVisibility(QQuickWindow.Windowed)
+        self._fullscreen = False
+
     def getBackgroundColor(self):
         return self._background_color
 
@@ -155,7 +160,7 @@ class MainWindow(QQuickWindow):
         self._mouse_x = event.x()
         self._mouse_y = event.y()
 
-        if self._mouse_pressed and self._app.getController().isModelRenderingEnabled():
+        if self._mouse_pressed:
             self.mousePositionChanged.emit()
 
         super().mouseMoveEvent(event)
@@ -227,14 +232,13 @@ class MainWindow(QQuickWindow):
 
     @pyqtSlot()
     def _onWindowGeometryChanged(self):
-        if self.windowState() == Qt.WindowNoState:
-            self._preferences.setValue("general/window_width", self.width())
-            self._preferences.setValue("general/window_height", self.height())
-            self._preferences.setValue("general/window_left", self.x())
-            self._preferences.setValue("general/window_top", self.y())
-            self._preferences.setValue("general/window_state", Qt.WindowNoState)
-        elif self.windowState() == Qt.WindowMaximized:
-            self._preferences.setValue("general/window_state", Qt.WindowMaximized)
+        self._preferences.setValue("general/window_width", self.width())
+        self._preferences.setValue("general/window_height", self.height())
+        self._preferences.setValue("general/window_left", self.x())
+        self._preferences.setValue("general/window_top", self.y())
+        # This is a workaround for QTBUG-30085
+        if self.windowState() in (Qt.WindowNoState, Qt.WindowMaximized):
+            self._preferences.setValue("general/window_state", self.windowState())
 
     def _updateViewportGeometry(self, width: int, height: int):
         view_width = width * self._viewport_rect.width()
@@ -245,13 +249,8 @@ class MainWindow(QQuickWindow):
 
             if camera.getAutoAdjustViewPort():
                 camera.setViewportSize(view_width, view_height)
-                projection_matrix = Matrix()
-                if camera.isPerspective():
-                    if view_width is not 0:
-                        projection_matrix.setPerspective(30, view_width / view_height, 1, 500)
-                else:
-                    projection_matrix.setOrtho(-view_width / 2, view_width / 2, -view_height / 2, view_height / 2, -500, 500)
-                camera.setProjectionMatrix(projection_matrix)
 
         self._app.getRenderer().setViewportSize(view_width, view_height)
         self._app.getRenderer().setWindowSize(width, height)
+
+

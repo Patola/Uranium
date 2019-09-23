@@ -1,6 +1,7 @@
 # Copyright (c) 2015 Ultimaker B.V.
 # Uranium is released under the terms of the LGPLv3 or higher.
-from typing import List, Optional
+
+from typing import List, Optional, Tuple
 
 from UM.Signal import Signal
 from UM.Math.Vector import Vector
@@ -8,8 +9,6 @@ from UM.Math.AxisAlignedBox import AxisAlignedBox
 from UM.Scene.SceneNode import SceneNode
 
 from UM.Operations.GroupedOperation import GroupedOperation
-
-import copy
 
 
 ##    This class is responsible for keeping track of what objects are selected
@@ -29,9 +28,51 @@ class Selection:
     def remove(cls, object: SceneNode) -> None:
         if object in cls.__selection:
             cls.__selection.remove(object)
+            cls.unsetFace(object)
             object.transformationChanged.disconnect(cls._onTransformationChanged)
             cls._onTransformationChanged(object)
             cls.selectionChanged.emit()
+
+    @classmethod
+    def getFaceSelectMode(cls) -> bool:
+        return cls.__face_select_mode
+
+    @classmethod
+    def setFaceSelectMode(cls, select: bool) -> None:
+        cls.__face_select_mode = select
+        cls.selectedFaceChanged.emit()
+
+    @classmethod
+    def setFace(cls, object: SceneNode, face_id: int) -> None:
+        # Don't force-add the object, as the parent may be the 'actual' selected one.
+        cls.__selected_face = (object, face_id)
+        cls.selectedFaceChanged.emit()
+
+    @classmethod
+    def unsetFace(cls, object: Optional["SceneNode"] = None) -> None:
+        if not object or not cls.__selected_face or object is cls.__selected_face[0]:
+            cls.__selected_face = None
+            cls.selectedFaceChanged.emit()
+
+    @classmethod
+    def toggleFace(cls, object: SceneNode, face_id: int) -> None:
+        current_face = cls.__selected_face
+        if not current_face or object != current_face[0] or face_id != current_face[1]:
+            cls.setFace(object, face_id)
+        else:
+            cls.unsetFace(object)
+
+    @classmethod
+    def hoverFace(cls, object: SceneNode, face_id: int) -> None:
+        # Don't force-add the object, as the parent may be the 'actual' selected one.
+        cls.__hover_face = (object, face_id)
+        cls.hoverFaceChanged.emit()
+
+    @classmethod
+    def unhoverFace(cls, object: Optional["SceneNode"] = None) -> None:
+        if not object or not cls.__hover_face or object is cls.__hover_face[0]:
+            cls.__hover_face = None
+            cls.hoverFaceChanged.emit()
 
     @classmethod
     ##  Get number of selected objects
@@ -43,12 +84,17 @@ class Selection:
         return cls.__selection
 
     @classmethod
+    def getSelectedFace(cls) -> Optional[Tuple[SceneNode, int]]:
+        return cls.__selected_face
+
+    @classmethod
+    def getHoverFace(cls) -> Optional[Tuple[SceneNode, int]]:
+        return cls.__hover_face
+
+    @classmethod
     def getBoundingBox(cls) -> AxisAlignedBox:
         bounding_box = None  # don't start with an empty bounding box, because that includes (0,0,0)
         for node in cls.__selection:
-            if not isinstance(node, SceneNode):
-                continue
-
             if not bounding_box:
                 bounding_box = node.getBoundingBox()
             else:
@@ -79,6 +125,13 @@ class Selection:
         cls.selectionChanged.emit()
 
     @classmethod
+    def clearFace(cls):
+        cls.__selected_face = None
+        cls.__hover_face = None
+        cls.selectedFaceChanged.emit()
+        cls.hoverFaceChanged.emit()
+
+    @classmethod
     ##  Check if anything is selected at all.
     def hasSelection(cls) -> bool:
         return bool(cls.__selection)
@@ -87,11 +140,12 @@ class Selection:
 
     selectionCenterChanged = Signal()
 
+    selectedFaceChanged = Signal()
+
+    hoverFaceChanged = Signal()
+
     @classmethod
     def getSelectionCenter(cls) -> Vector:
-        if not cls.__selection:
-            cls.__selection_center = Vector.Null
-
         return cls.__selection_center
 
     ##  Apply an operation to the entire selection
@@ -135,3 +189,6 @@ class Selection:
 
     __selection = []    # type: List[SceneNode]
     __selection_center = Vector(0, 0, 0)
+    __selected_face = None    # type: Optional[Tuple[SceneNode, int]]
+    __hover_face = None    # type: Optional[Tuple[SceneNode, int]]
+    __face_select_mode = False

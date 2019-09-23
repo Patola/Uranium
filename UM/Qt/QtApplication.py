@@ -34,6 +34,7 @@ from UM.Job import Job #For typing.
 from UM.JobQueue import JobQueue
 from UM.VersionUpgradeManager import VersionUpgradeManager
 from UM.View.GL.OpenGLContext import OpenGLContext
+from UM.Version import Version
 
 from UM.Operations.GroupedOperation import GroupedOperation #To clear the scene.
 from UM.Operations.RemoveSceneNodeOperation import RemoveSceneNodeOperation #To clear the scene.
@@ -118,6 +119,8 @@ class QtApplication(QApplication, Application):
 
     def initialize(self) -> None:
         super().initialize()
+        # Initialize the package manager to remove and install scheduled packages.
+        self._package_manager = self._package_manager_class(self, parent = self)
 
         self._mesh_file_handler = MeshFileHandler(self) #type: MeshFileHandler
         self._workspace_file_handler = WorkspaceFileHandler(self) #type: WorkspaceFileHandler
@@ -195,8 +198,8 @@ class QtApplication(QApplication, Application):
             self._preferences.deserialize(serialized)
             self._preferences.setValue("general/plugins_to_remove", "")
             self._preferences.writeToFile(preferences_filename)
-        except FileNotFoundError:
-            Logger.log("i", "The preferences file cannot be found, will use default values")
+        except (FileNotFoundError, UnicodeDecodeError):
+            Logger.log("i", "The preferences file cannot be found or it is corrupted, so we will use default values")
 
         # Force the configuration file to be written again since the list of plugins to remove maybe changed
         self.showSplashMessage(i18n_catalog.i18nc("@info:progress", "Loading preferences..."))
@@ -212,6 +215,18 @@ class QtApplication(QApplication, Application):
         # but the PluginRegistry will still import data from the Preferences files if present, such as disabled plugins,
         # so we need to reset those values AFTER the Preferences file is loaded.
         self._plugin_registry.initializeAfterPluginsAreLoaded()
+
+        # Check if we have just updated from an older version
+        self._preferences.addPreference("general/last_run_version", "")
+        last_run_version_str = self._preferences.getValue("general/last_run_version")
+        if not last_run_version_str:
+            last_run_version_str = self._version
+        last_run_version = Version(last_run_version_str)
+        current_version = Version(self._version)
+        if last_run_version < current_version:
+            self._just_updated_from_old_version = True
+        self._preferences.setValue("general/last_run_version", str(current_version))
+        self._preferences.writeToFile(self._preferences_filename)
 
         # Preferences: recent files
         self._preferences.addPreference("%s/recent_files" % self._app_name, "")
@@ -525,34 +540,7 @@ class QtApplication(QApplication, Application):
     #   \param only_selectable. Set this to False to delete objects from all build plates
     @pyqtSlot()
     def deleteAll(self, only_selectable = True) -> None:
-        Logger.log("i", "Clearing scene")
-        if not self.getController().getToolsEnabled():
-            return
-
-        nodes = []
-        for node in DepthFirstIterator(self.getController().getScene().getRoot()): #type: ignore #Ignore type error because iter() should get called automatically by Python syntax.
-            if not isinstance(node, SceneNode):
-                continue
-            if (not node.getMeshData() and not node.callDecoration("getLayerData")) and not node.callDecoration("isGroup"):
-                continue  # Node that doesnt have a mesh and is not a group.
-            if only_selectable and not node.isSelectable():
-                continue
-            if not node.callDecoration("isSliceable") and not node.callDecoration("getLayerData") and not node.callDecoration("isGroup"):
-                continue  # Only remove nodes that are selectable.
-            if node.getParent() and cast(SceneNode, node.getParent()).callDecoration("isGroup"):
-                continue  # Grouped nodes don't need resetting as their parent (the group) is resetted)
-            nodes.append(node)
-        if nodes:
-            op = GroupedOperation()
-
-            for node in nodes:
-                op.addOperation(RemoveSceneNodeOperation(node))
-
-                # Reset the print information
-                self.getController().getScene().sceneChanged.emit(node)
-
-            op.push()
-            Selection.clear()
+        self.getController().deleteAllNodesWithMeshData(only_selectable)
 
     ##  Get the MeshFileHandler of this application.
     def getMeshFileHandler(self) -> MeshFileHandler:

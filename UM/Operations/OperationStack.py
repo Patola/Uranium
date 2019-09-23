@@ -1,10 +1,11 @@
-# Copyright (c) 2015 Ultimaker B.V.
+# Copyright (c) 2019 Ultimaker B.V.
 # Uranium is released under the terms of the LGPLv3 or higher.
 
-import UM.Application
-from UM.Signal import Signal, signalemitter
-
 import threading
+import time
+
+from UM.Logger import Logger
+from UM.Signal import Signal, signalemitter
 
 ##  A stack of operations.
 #
@@ -41,6 +42,7 @@ class OperationStack():
     #
     #   \param operation \type{Operation} The operation to push onto the stack.
     def push(self, operation):
+        start_time = time.time()
         if not self._lock.acquire(False):
             return
 
@@ -57,6 +59,9 @@ class OperationStack():
             self.changed.emit()
         finally:
             self._lock.release()
+        elapsed_time = time.time() - start_time
+
+        Logger.log("d", " ".join(repr(operation).splitlines()) + ", took {0}ms".format(int(elapsed_time * 1000))) #Don't remove; used in regression-tests.
 
     ##  Undo the current operation.
     #

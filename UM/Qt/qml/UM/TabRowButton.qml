@@ -1,8 +1,8 @@
 // Copyright (c) 2018 Ultimaker B.V.
 // Uranium is released under the terms of the LGPLv3 or higher.
 
-import QtQuick 2.0
-import QtQuick.Controls 2.0
+import QtQuick 2.10
+import QtQuick.Controls 2.3
 import UM 1.2 as UM
 
 /*
@@ -47,5 +47,15 @@ TabButton
                 height: parent.height - anchors.bottomMargin
             }
         }
+    }
+    contentItem: Label
+    {
+        anchors.centerIn: parent
+        horizontalAlignment: Text.AlignHCenter
+        verticalAlignment: Text.AlignVCenter
+        text: parent.text
+        font: parent.checked ? UM.Theme.getFont("default_bold") : UM.Theme.getFont("default")
+        color: UM.Theme.getColor("text")
+        renderType: Text.NativeRendering
     }
 }

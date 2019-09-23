@@ -1,6 +1,8 @@
-# Copyright (c) 2015 Ultimaker B.V.
+# Copyright (c) 2019 Ultimaker B.V.
 # Uranium is released under the terms of the LGPLv3 or higher.
-
+from UM.Mesh.MeshBuilder import MeshBuilder
+from UM.Mesh.MeshData import MeshData
+from UM.Scene.GroupDecorator import GroupDecorator
 from UM.Scene.SceneNode import SceneNode
 
 from UM.Math.Vector import Vector
@@ -10,6 +12,9 @@ from UM.Math.Float import Float
 
 import unittest
 import math
+
+from copy import deepcopy
+from unittest.mock import MagicMock
 
 class SceneNodeTest(unittest.TestCase):
     def setUp(self):
@@ -51,11 +56,15 @@ class SceneNodeTest(unittest.TestCase):
 
         node.setOrientation(Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
 
-        self.assertEqual(node.getOrientation(), Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
+        node_orientation = deepcopy(node.getOrientation())
+        node_orientation.normalize() #For fair comparison.
+        self.assertEqual(node_orientation, Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
 
         node.setOrientation(Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
 
-        self.assertEqual(node.getOrientation(), Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
+        node_orientation = deepcopy(node.getOrientation())
+        node_orientation.normalize() #For fair comparison.
+        self.assertEqual(node_orientation, Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
 
     def test_rotate(self):
         node = SceneNode()
@@ -64,11 +73,15 @@ class SceneNodeTest(unittest.TestCase):
 
         node.rotate(Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
 
-        self.assertEqual(node.getOrientation(), Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
+        node_orientation = deepcopy(node.getOrientation())
+        node_orientation.normalize() #For fair comparison.
+        self.assertEqual(node_orientation, Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
 
         node.rotate(Quaternion.fromAngleAxis(math.pi / 4, Vector.Unit_Z))
 
-        self.assertEqual(node.getOrientation(), Quaternion.fromAngleAxis(math.pi / 2, Vector.Unit_Z))
+        node_orientation = deepcopy(node.getOrientation())
+        node_orientation.normalize()
+        self.assertEqual(node_orientation, Quaternion.fromAngleAxis(math.pi / 2, Vector.Unit_Z))
 
     def test_setScale(self):
         node = SceneNode()
@@ -236,6 +249,23 @@ class SceneNodeTest(unittest.TestCase):
 
         assert not node1.hasChildren()
 
+    def test_getAllChildren(self):
+        parent_node = SceneNode()
+        child_node_1 = SceneNode()
+        child_node_2 = SceneNode()
+        parent_node.addChild(child_node_1)
+        parent_node.addChild(child_node_2)
+
+        child_1_of_child_node_1 = SceneNode()
+        child_2_of_child_node_1 = SceneNode()
+        child_node_1.addChild(child_1_of_child_node_1)
+        child_node_1.addChild(child_2_of_child_node_1)
+
+        child_1_of_child_node_2 = SceneNode()
+        child_node_2.addChild(child_1_of_child_node_2)
+
+        assert parent_node.getAllChildren() == [child_node_1, child_node_2, child_1_of_child_node_1, child_2_of_child_node_1, child_1_of_child_node_2]
+
     def test_rotateWorld(self):
         pass
 
@@ -248,7 +278,98 @@ class SceneNodeTest(unittest.TestCase):
         self.assertEqual(node2.getWorldPosition(), Vector(15,10,10))
         node2.scale(Vector(1.5,1,1))
         self.assertEqual(node2.getWorldPosition(), Vector(15,10,10))
-        pass
+
+    def test_deepCopy(self):
+        node_1 = SceneNode()
+        node_2 = SceneNode()
+        node_1.translate(Vector(1, 2, 3))
+        node_1.scale(Vector(1.5, 1., 1.))
+        node_1.setMeshData(MeshData())
+        node_1.addChild(node_2)
+        node_1.addDecorator(GroupDecorator())
+        copied_node = deepcopy(node_1)
+
+        assert copied_node.getScale() == Vector(1.5, 1, 1)
+        assert copied_node.getPosition() == Vector(1, 2, 3)
+        assert len(copied_node.getChildren()) == 1
+        # Ensure that the decorator also got copied
+        assert copied_node.callDecoration("isGroup")
+
+    def test_addRemoveDouble(self):
+        # Adding a child that's already a child of a node should not cause issues. Same for trying to remove one that isn't a child
+
+        node_1 = SceneNode()
+        node_2 = SceneNode()
+        # Should work
+        node_1.addChild(node_2)
+        # Should still work!
+        node_1.addChild(node_2)
+
+        # This has already been tested somewhere else, so no problems are expected
+        node_1.removeChild(node_2)
+        # Doing it again shouldn't break.
+        node_1.removeChild(node_2)
+
+    def test_getSetMeshdata(self):
+        node = SceneNode()
+        test_mesh = MeshData()
+        node.setMeshData(test_mesh)
+        assert node.getMeshData() == test_mesh
+
+    def test_getTransformedMeshdata(self):
+        node = SceneNode()
+        node.translate(Vector(10, 0 , 0))
+        builder = MeshBuilder()
+        builder.addVertex(10, 20, 20)
+        node.setMeshData(builder.build())
+        
+        transformed_mesh = node.getMeshDataTransformed()
+
+        transformed_vertex = transformed_mesh.getVertices()[0]
+        assert transformed_vertex[0] == 20
+        assert transformed_vertex[1] == 20
+        assert transformed_vertex[2] == 20
+
+    def test_getSetSetting(self):
+        node = SceneNode()
+        node.setSetting("ZOMG", "BEEP")
+        assert node.getSetting("ZOMG") == "BEEP"
+        assert node.getSetting("unknown") == ""
+        assert node.getSetting("unknown", "zomg") == "zomg"
+
+    def test_getSetSelectable(self):
+        node = SceneNode()
+        node.setSelectable(True)
+        assert node.isSelectable()
+        node.setEnabled(False)
+        assert not node.isSelectable() # Node is disabled, can't select it anymore
+
+    def test_getSetMirror(self):
+        node = SceneNode()
+        node.setMirror(Vector(-1, 1, 1))
+        assert node.getMirror() == Vector(-1, 1, 1)
+
+    def test_setCenterPosition(self):
+        node = SceneNode()
+        child_node = SceneNode()
+        node.addChild(child_node)
+        child_node.setCenterPosition = MagicMock()
+
+        builder = MeshBuilder()
+        builder.addVertex(10, 20, 20)
+        node.setMeshData(builder.build())
+
+        node.setCenterPosition(Vector(-10, 0, 0))
+
+        transformed_mesh = node.getMeshData()
+
+        transformed_vertex = transformed_mesh.getVertices()[0]
+        assert transformed_vertex[0] == 20
+        assert transformed_vertex[1] == 20
+        assert transformed_vertex[2] == 20
+
+        child_node.setCenterPosition.assert_called_once_with(Vector(-10, 0, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

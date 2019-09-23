@@ -8,7 +8,7 @@ from UM.Math import NumPyUtil
 from UM.Math.Matrix import Matrix
 
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import threading
 import numpy
@@ -188,13 +188,13 @@ class MeshData:
         if self._vertices is None:
             return None
 
-        data = numpy.pad(self.getConvexHullVertices(), ((0, 0), (0, 1)), "constant", constant_values=(0.0, 1.0))
-
         if matrix is not None:
-            transposed = matrix.getTransposed().getData()
-            data = data.dot(transposed)
-            data += transposed[:, 3]
-            data = data[:, 0:3]
+            data = self.getConvexHullTransformedVertices(matrix)
+        else:
+            data = self.getConvexHullVertices()
+
+        if data is None:
+            return None
 
         min = data.min(axis=0)
         max = data.max(axis=0)
@@ -273,6 +273,24 @@ class MeshData:
             return transformVertices(vertices, transformation)
         else:
             return None
+
+    ##  Gets the plane the supplied face lies in. The resultant plane is specified by a point and a normal.
+    #
+    #   \param face_id \type{int} The index of the face (not the flattened indices).
+    #   \return \type{Tuple[numpy.ndarray, numpy.ndarray]} A plane, the 1st vector is the center, the 2nd the normal.
+    def getFacePlane(self, face_id: int) -> Tuple[numpy.ndarray, numpy.ndarray]:
+        if not self._indices or len(self._indices) == 0:
+            base_index = face_id * 3
+            v_a = self._vertices[base_index]
+            v_b = self._vertices[base_index + 1]
+            v_c = self._vertices[base_index + 2]
+        else:
+            v_a = self._vertices[self._indices[face_id][0]]
+            v_b = self._vertices[self._indices[face_id][1]]
+            v_c = self._vertices[self._indices[face_id][2]]
+        in_point = (v_a + v_b + v_c) / 3.0
+        face_normal = numpy.cross(v_b - v_a, v_c - v_a)
+        return in_point, face_normal
 
     def hasAttribute(self, key: str) -> bool:
         return key in self._attributes

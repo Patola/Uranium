@@ -2,7 +2,6 @@
 # Uranium is released under the terms of the LGPLv3 or higher.
 
 from PyQt5.QtCore import QObject, pyqtProperty, pyqtSignal, pyqtSlot
-from PyQt5.QtQml import QQmlEngine, QJSEngine #For typing.
 from typing import List, Mapping, Optional, TYPE_CHECKING
 
 from UM.Application import Application
@@ -15,10 +14,12 @@ from UM.Scene.SceneNode import SceneNode
 from UM.Scene.Selection import Selection
 
 if TYPE_CHECKING:
+    from PyQt5.QtQml import QQmlEngine, QJSEngine
     from UM.FileHandler.FileHandler import FileHandler
     from UM.OutputDevice.OutputDeviceManager import OutputDeviceManager
 
 catalog = i18nCatalog("uranium")
+
 
 class OutputDeviceManagerProxy(QObject):
     def __init__(self, parent = None) -> None:
@@ -52,6 +53,14 @@ class OutputDeviceManagerProxy(QObject):
     @pyqtProperty(str, notify = activeDeviceChanged)
     def activeDeviceDescription(self) -> str:
         return self._device_manager.getActiveDevice().getDescription()
+
+    @pyqtSlot()
+    def startDiscovery(self) -> None:
+        return self._device_manager.startDiscovery()
+
+    @pyqtSlot()
+    def refreshConnections(self) -> None:
+        return self._device_manager.refreshConnections()
 
     ##  Request that the current scene is written to the output device.
     #
@@ -135,5 +144,5 @@ class OutputDeviceManagerProxy(QObject):
             Logger.logException("e", "Unable to write to file %s: %s", file_name, e)
 
 
-def createOutputDeviceManagerProxy(engine: QQmlEngine, script_engine: QJSEngine) -> OutputDeviceManagerProxy:
+def createOutputDeviceManagerProxy(engine: "QQmlEngine", script_engine: "QJSEngine") -> OutputDeviceManagerProxy:
     return OutputDeviceManagerProxy()

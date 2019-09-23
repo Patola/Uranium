@@ -1,4 +1,4 @@
-# Copyright (c) 2015 Ultimaker B.V.
+# Copyright (c) 2019 Ultimaker B.V.
 # Uranium is released under the terms of the LGPLv3 or higher.
 
 import numpy
@@ -23,7 +23,7 @@ class Quaternion(object):
 
     def __init__(self, x=0.0, y=0.0, z=0.0, w=1.0):
         # Components are stored as XYZW
-        self._data = numpy.array([x, y, z, w], dtype=numpy.float32)
+        self._data = numpy.array([x, y, z, w], dtype=numpy.float64)
 
     def getData(self):
         return self._data
@@ -143,10 +143,10 @@ class Quaternion(object):
     def normalize(self):
         self._data /= numpy.linalg.norm(self._data)
 
-    ## Set quaternion by providing a homogenous (4x4) rotation matrix.
+    ## Set quaternion by providing a homogeneous (4x4) rotation matrix.
     # \param matrix 4x4 Matrix object
-    # \param is_precise
-    def setByMatrix(self, matrix, is_precise = False):
+    # \param ensure_unit_length
+    def setByMatrix(self, matrix, ensure_unit_length = False):
         trace = matrix.at(0, 0) + matrix.at(1, 1) + matrix.at(2, 2)
         if trace > 0.0:
             self._data[0] = matrix.at(2, 1) - matrix.at(1, 2)
@@ -178,11 +178,11 @@ class Quaternion(object):
                 self._data[1] = matrix.at(2, 1) + matrix.at(1, 2)
                 self._data[1] = matrix.at(2, 2) - matrix.at(0, 0) - matrix.at(1, 1) + 1.0
                 self._data[3] = matrix.at(1, 0) - matrix.at(0, 1)
-
-        self.normalize()
+        if ensure_unit_length:
+            self.normalize()
 
     def toMatrix(self):
-        m = numpy.zeros((4, 4), dtype=numpy.float32)
+        m = numpy.zeros((4, 4), dtype=numpy.float64)
 
         s = 2.0 / (self.x ** 2 + self.y ** 2 + self.z ** 2 + self.w ** 2)
 
@@ -202,19 +202,19 @@ class Quaternion(object):
         yz = self.y * zs
         zz = self.z * zs
 
-        m[0,0] = 1.0 - (yy + zz)
-        m[0,1] = xy - wz
-        m[0,2] = xz + wy
+        m[0, 0] = 1.0 - (yy + zz)
+        m[0, 1] = xy - wz
+        m[0, 2] = xz + wy
 
-        m[1,0] = xy + wz
-        m[1,1] = 1.0 - (xx + zz)
-        m[1,2] = yz - wx
+        m[1, 0] = xy + wz
+        m[1, 1] = 1.0 - (xx + zz)
+        m[1, 2] = yz - wx
 
-        m[2,0] = xz - wy
-        m[2,1] = yz + wx
-        m[2,2] = 1.0 - (xx + yy)
+        m[2, 0] = xz - wy
+        m[2, 1] = yz + wx
+        m[2, 2] = 1.0 - (xx + yy)
 
-        m[3,3] = 1.0
+        m[3, 3] = 1.0
 
         return Matrix(m)
 
@@ -246,7 +246,7 @@ class Quaternion(object):
             if Float.fuzzyCompare(axis.length(), 0.0):
                 axis = Vector.Unit_Y.cross(v1)
 
-            axis.normalize()
+            axis = axis.normalized()
             q = Quaternion()
             q.setByAngleAxis(math.pi, axis)
         else:
@@ -279,3 +279,6 @@ class Quaternion(object):
 
     def __repr__(self):
         return "Quaternion(x={0}, y={1}, z={2}, w={3})".format(self.x, self.y, self.z, self.w)
+
+    def __str__(self):
+        return "Q<{0},{1},{2},w={3}>".format(self.x, self.y, self.z, self.w)

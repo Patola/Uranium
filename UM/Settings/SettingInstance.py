@@ -71,9 +71,6 @@ class SettingInstance:
     #   \param definition The SettingDefinition object this is an instance of.
     #   \param container The container of this instance. Needed for relation handling.
     def __init__(self, definition: SettingDefinition, container: ContainerInterface, *args: Any, **kwargs: Any) -> None:
-        if container is None:
-            raise ValueError("Cannot create a setting instance without a container")
-
         super().__init__()
 
         self._definition = definition  # type: SettingDefinition
@@ -118,6 +115,11 @@ class SettingInstance:
                     return False  # Property values don't match
             except AttributeError:
                 return False  # Other does not have the property
+
+        # Check if the other has properties that self doesn't have.
+        for property_name in other.getPropertyNames():
+            if property_name not in self.__property_values:
+                return False
         return True
 
     def __ne__(self, other: object) -> bool:
@@ -182,21 +184,6 @@ class SettingInstance:
                             self.propertyChanged.emit(self._definition.key, "state")
             else:
                 raise AttributeError("No property {0} defined".format(name))
-
-    @call_if_enabled(_traceUpdateProperty, _isTraceEnabled())
-    def updateProperty(self, name: str, container: Optional[ContainerInterface] = None) -> None:
-        if not SettingDefinition.hasProperty(name):
-            Logger.log("e", "Trying to update unknown property %s", name)
-            return
-
-        if name == "value" and self._state == InstanceState.User:
-            Logger.log("d", "Ignoring update of value for setting %s since it has been set by the user.", self._definition.key)
-            return
-
-        if self._validator:
-            self.propertyChanged.emit(self._definition.key, "validationState")
-
-        self.propertyChanged.emit(self._definition.key, name)
 
     ##  Emitted whenever a property of this instance changes.
     #

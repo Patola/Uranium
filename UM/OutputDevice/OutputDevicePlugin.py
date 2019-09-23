@@ -1,6 +1,9 @@
-# Copyright (c) 2015 Ultimaker B.V.
+# Copyright (c) 2019 Ultimaker B.V.
 # Uranium is released under the terms of the LGPLv3 or higher.
 
+from typing import Optional, Callable
+
+from UM.OutputDevice.OutputDeviceManager import ManualDeviceAdditionAttempt
 from UM.PluginObject import PluginObject
 from UM.Application import Application
 
@@ -18,6 +21,7 @@ from UM.Application import Application
 #
 #   \sa OutputDeviceManager
 class OutputDevicePlugin(PluginObject):
+
     def __init__(self):
         super().__init__()
 
@@ -34,3 +38,28 @@ class OutputDevicePlugin(PluginObject):
     ##  Called by OutputDeviceManager to indicate the plugin should stop its device detection.
     def stop(self):
         raise NotImplementedError("Stop should be implemented by subclasses")
+
+    ## Used to check if this adress makes sense to this plugin w.r.t. adding(/removing) a manual device.
+    #  /return 'No', 'possible', or 'priority' (in the last case this plugin takes precedence, use with care).
+    def canAddManualDevice(self, address: str = "") -> ManualDeviceAdditionAttempt:
+        return ManualDeviceAdditionAttempt.NO
+
+    ## Add a manual device by the specified address (for example, an IP).
+    #  The optional callback is a function with signature func(success: bool, address: str) -> None, where
+    #    - success is a bool that indicates if the manual device's information was successfully retrieved.
+    #    - address is the address of the manual device.
+    def addManualDevice(self, address: str, callback: Optional[Callable[[bool, str], None]] = None) -> None:
+        pass
+
+    ## Remove a manual device by either the name and/or the specified address.
+    #  Since this may be asynchronous, use the 'removeDeviceSignal' when the machine actually has been added.
+    def removeManualDevice(self, key: str, address: Optional[str] = None) -> None:
+        pass
+
+    ## Starts to discovery network devices that can be handled by this plugin.
+    def startDiscovery(self) -> None:
+        pass
+
+    ## Refresh the available/discovered printers for an output device that handles network printers.
+    def refreshConnections(self) -> None:
+        pass

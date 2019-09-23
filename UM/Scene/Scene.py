@@ -4,7 +4,7 @@
 import functools  # For partial to update files that were changed.
 import os.path  # To watch files for changes.
 import threading
-from typing import Optional, List
+from typing import Callable, List, Optional, Set
 
 from PyQt5.QtCore import QFileSystemWatcher  # To watch files for changes.
 
@@ -43,6 +43,7 @@ class Scene:
         self._file_watcher.fileChanged.connect(self._onFileChanged)
 
         self._reload_message = None  # type: Optional[Message]
+        self._callbacks = set() # type: Set[Callable] # Need to keep these in memory. This is a memory leak every time you refresh, but a tiny one.
 
     def _connectSignalsRoot(self) -> None:
         self._root.transformationChanged.connect(self.sceneChanged)
@@ -61,22 +62,6 @@ class Scene:
                 self._disconnectSignalsRoot()
             else:
                 self._connectSignalsRoot()
-
-    ##  Acquire the global scene lock.
-    #
-    #   This will prevent any read or write actions on the scene from other threads,
-    #   assuming those threads also properly acquire the lock. Most notably, this
-    #   prevents the rendering thread from rendering the scene while it is changing.
-    #   Deprecated, use getSceneLock() instead.
-    @deprecated("Please use the getSceneLock instead", "3.3")
-    def acquireLock(self) -> None:
-        self._lock.acquire()
-
-    ##  Release the global scene lock.
-    #   Deprecated, use getSceneLock() instead.
-    @deprecated("Please use the getSceneLock instead", "3.3")
-    def releaseLock(self) -> None:
-        self._lock.release()
 
     ##  Gets the global scene lock.
     #
@@ -108,7 +93,7 @@ class Scene:
 
     def getAllCameras(self) -> List[Camera]:
         cameras = []
-        for node in BreadthFirstIterator(self._root):  # type: ignore
+        for node in BreadthFirstIterator(self._root):
             if isinstance(node, Camera):
                 cameras.append(node)
         return cameras
@@ -117,8 +102,11 @@ class Scene:
     #   \param name The name of the camera to use.
     def setActiveCamera(self, name: str) -> None:
         camera = self.findCamera(name)
-        if camera:
+        if camera and camera != self._active_camera:
+            if self._active_camera:
+                self._active_camera.perspectiveChanged.disconnect(self.sceneChanged)
             self._active_camera = camera
+            self._active_camera.perspectiveChanged.connect(self.sceneChanged)
         else:
             Logger.log("w", "Couldn't find camera with name [%s] to activate!" % name)
 
@@ -132,13 +120,13 @@ class Scene:
     #
     #   \return The object if found, or None if not.
     def findObject(self, object_id: int) -> Optional["SceneNode"]:
-        for node in BreadthFirstIterator(self._root):  # type: ignore
+        for node in BreadthFirstIterator(self._root):
             if id(node) == object_id:
                 return node
         return None
 
     def findCamera(self, name: str) -> Optional[Camera]:
-        for node in BreadthFirstIterator(self._root):  # type: ignore
+        for node in BreadthFirstIterator(self._root):
             if isinstance(node, Camera) and node.getName() == name:
                 return node
         return None
@@ -194,8 +182,9 @@ class Scene:
                 if not filename or not os.path.isfile(filename):  # File doesn't exist any more.
                     continue
                 job = ReadMeshJob(filename)
-                self._reload_finished_callback = functools.partial(self._reloadJobFinished, node)
-                job.finished.connect(self._reload_finished_callback)
+                reload_finished_callback = functools.partial(self._reloadJobFinished, node)
+                self._callbacks.add(reload_finished_callback) #Store it so it won't get garbage collected. This is a memory leak, but just one partial per reload so it's not much.
+                job.finished.connect(reload_finished_callback)
                 job.start()
 
     ##  Triggered when reloading has finished.

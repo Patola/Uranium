@@ -48,15 +48,7 @@ class SetTransformOperation(Operation.Operation):
         else:
             self._new_shear = node.getShear()
 
-        if mirror:
-            self._new_mirror = mirror
-        else:
-            # Scale will either be negative or positive. If it's negative, we need to use the inverse mirror.
-            if self._node.getScale().x < 0:
-                self._new_mirror = Vector(-node.getMirror().x, -node.getMirror().y, -node.getMirror().z)
-            else:
-                self._new_mirror = node.getMirror()
-
+        self._new_mirror = Vector(1, 1, 1)
         self._new_transformation = Matrix()
 
         euler_orientation = self._new_orientation.toMatrix().getEuler()
@@ -96,4 +88,4 @@ class SetTransformOperation(Operation.Operation):
     #
     #   A programmer-readable representation of this operation.
     def __repr__(self):
-        return "SetTransformOperation(node = {0})".format(self._node)
+        return "SetTransformOp.(node={0})".format(self._node)

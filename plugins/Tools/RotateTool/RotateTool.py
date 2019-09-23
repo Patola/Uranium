@@ -1,6 +1,8 @@
 # Copyright (c) 2018 Ultimaker B.V.
 # Uranium is released under the terms of the LGPLv3 or higher.
+from typing import Optional
 
+from UM.Scene.SceneNode import SceneNode
 from UM.Tool import Tool
 from UM.Job import Job
 from UM.Event import Event, MouseEvent, KeyEvent
@@ -19,7 +21,13 @@ from UM.Operations.GroupedOperation import GroupedOperation
 from UM.Operations.SetTransformOperation import SetTransformOperation
 from UM.Operations.LayFlatOperation import LayFlatOperation
 
-from . import RotateToolHandle
+from UM.Version import Version
+
+from UM.View.GL.OpenGL import OpenGL
+try:
+    from . import RotateToolHandle
+except (ImportError, SystemError):
+    import RotateToolHandle  # type: ignore  # This fixes the tests not being able to import.
 
 import math
 import time
@@ -27,10 +35,10 @@ import time
 from UM.i18n import i18nCatalog
 i18n_catalog = i18nCatalog("uranium")
 
+
 ##  Provides the tool to rotate meshes and groups
 #
 #   The tool exposes a ToolHint to show the rotation angle of the current operation
-
 class RotateTool(Tool):
     def __init__(self):
         super().__init__()
@@ -48,8 +56,10 @@ class RotateTool(Tool):
         self._iterations = 0
         self._total_iterations = 0
         self._rotating = False
-        self.setExposedProperties("ToolHint", "RotationSnap", "RotationSnapAngle")
+        self.setExposedProperties("ToolHint", "RotationSnap", "RotationSnapAngle", "SelectFaceSupported")
         self._saved_node_positions = []
+
+        Selection.selectedFaceChanged.connect(self._onSelectedFaceChanged)
 
     ##  Handle mouse and keyboard events
     #
@@ -156,10 +166,14 @@ class RotateTool(Tool):
                 self.propertyChanged.emit()
 
                 # Rotate around the saved centeres of all selected nodes
-                op = GroupedOperation()
-                for node, position in self._saved_node_positions:
-                    op.addOperation(RotateOperation(node, rotation, rotate_around_point = position))
-                op.push()
+                if len(self._saved_node_positions) > 1:
+                    op = GroupedOperation()
+                    for node, position in self._saved_node_positions:
+                        op.addOperation(RotateOperation(node, rotation, rotate_around_point = position))
+                    op.push()
+                else:
+                    for node, position in self._saved_node_positions:
+                        RotateOperation(node, rotation, rotate_around_point=position).push()
 
                 self.setDragStart(event.x, event.y)
             return True
@@ -175,11 +189,51 @@ class RotateTool(Tool):
                     self.operationStopped.emit(self)
                 return True
 
+    def _onSelectedFaceChanged(self):
+        self._handle.setEnabled(not Selection.getFaceSelectMode())
+
+        selected_face = Selection.getSelectedFace()
+        if not Selection.getSelectedFace() or not (Selection.hasSelection() and Selection.getFaceSelectMode()):
+            return
+
+        original_node, face_id = selected_face
+        meshdata = original_node.getMeshDataTransformed()
+        if not meshdata or face_id < 0:
+            return
+
+        rotation_point, face_normal = meshdata.getFacePlane(face_id)
+        rotation_point_vector = Vector(rotation_point[0], rotation_point[1], rotation_point[2])
+        face_normal_vector = Vector(face_normal[0], face_normal[1], face_normal[2])
+        rotation_quaternion = Quaternion.rotationTo(face_normal_vector.normalized(), Vector(0.0, -1.0, 0.0))
+
+        operation = GroupedOperation()
+        current_node = None  # type: Optional[SceneNode]
+        for node in Selection.getAllSelectedObjects():
+            current_node = node
+            parent_node = current_node.getParent()
+            while parent_node and parent_node.callDecoration("isGroup"):
+                current_node = parent_node
+                parent_node = current_node.getParent()
+        if current_node is None:
+            return
+
+        rotate_operation = RotateOperation(current_node, rotation_quaternion, rotation_point_vector)
+        operation.addOperation(rotate_operation)
+        operation.push()
+
+        # NOTE: We might want to consider unchecking the select-face button afterthe operation is done.
+
     ##  Return a formatted angle of the current rotate operation
     #
     #   \return type(String) fully formatted string showing the angle by which the mesh(es) are rotated
     def getToolHint(self):
         return "%d°" % round(math.degrees(self._angle)) if self._angle else None
+
+    ##  Get whether the select face feature is supported
+    #
+    #   \return type(Boolean)
+    def getSelectFaceSupported(self):
+        return OpenGL.getInstance().getOpenGLShadingLanguageVersion() >= Version("1.50")
 
     ##  Get the state of the "snap rotation to N-degree increments" option
     #
@@ -211,7 +265,6 @@ class RotateTool(Tool):
 
     ##  Reset the orientation of the mesh(es) to their original orientation(s)
     def resetRotation(self):
-
         for node in self._getSelectedObjectsWithoutSelectedAncestors():
             node.setMirror(Vector(1, 1, 1))
 
@@ -229,7 +282,6 @@ class RotateTool(Tool):
         self._total_iterations = 0
         for selected_object in self._getSelectedObjectsWithoutSelectedAncestors():
             self._layObjectFlat(selected_object)
-
         self._progress_message.show()
 
         operations = Selection.applyOperation(LayFlatOperation)
@@ -243,7 +295,7 @@ class RotateTool(Tool):
     ##  Lays the given object flat. The given object can be a group or not.
     def _layObjectFlat(self, selected_object):
         if not selected_object.callDecoration("isGroup"):
-            self._total_iterations += len(selected_object.getMeshDataTransformed().getVertices()) * 2
+            self._total_iterations += selected_object.getMeshData().getVertexCount() * 2
         else:
             for child in selected_object.getChildren():
                 self._layObjectFlat(child)
@@ -255,7 +307,7 @@ class RotateTool(Tool):
     def _layFlatProgress(self, iterations: int):
         self._iterations += iterations
         if self._progress_message:
-            self._progress_message.setProgress(100 * self._iterations / self._total_iterations)
+            self._progress_message.setProgress(min(100 * (self._iterations / self._total_iterations), 100))
 
     ##  Called when the LayFlatJob is done running all of its LayFlatOperations
     #

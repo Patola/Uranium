@@ -118,11 +118,10 @@ class LayFlatOperation(Operation.Operation):
         # Rate-limited progress notification
         # This is done to prevent the UI from being flooded with progress signals.
         self._progress += progress
-
         new_time = time.monotonic()
         if not self._progress_emit_time or new_time - self._progress_emit_time > 0.5: #Must be longer than half a second ago.
-            self.progress.emit(self._progress)
             self._progress_emit_time = new_time
+            self.progress.emit(self._progress)
             self._progress = 0
 
     ##  Undoes this lay flat operation.
@@ -162,4 +161,4 @@ class LayFlatOperation(Operation.Operation):
 
     ##  Makes a programmer-readable representation of this operation.
     def __repr__(self):
-        return "LayFlatOperation(node = {0})".format(self._node)
+        return "LayFlatOp.(node={0})".format(self._node)

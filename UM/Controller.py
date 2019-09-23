@@ -1,7 +1,9 @@
 # Copyright (c) 2018 Ultimaker B.V.
 # Uranium is released under the terms of the LGPLv3 or higher.
+from UM.Scene.Iterator.DepthFirstIterator import DepthFirstIterator
 from UM.Scene.Scene import Scene
 from UM.Event import Event, KeyEvent, MouseEvent, ToolEvent, ViewEvent
+from UM.Scene.SceneNode import SceneNode
 from UM.Signal import Signal, signalemitter
 from UM.Logger import Logger
 from UM.PluginRegistry import PluginRegistry
@@ -12,7 +14,6 @@ from UM.Stage import Stage
 from UM.InputDevice import InputDevice
 from typing import cast, Optional, Dict, Union
 from UM.Math.Vector import Vector
-
 MYPY = False
 if MYPY:
     from UM.Application import Application
@@ -32,7 +33,6 @@ class Controller:
 
         self._scene = Scene()
         self._application = application
-        self._is_model_rendering_enabled = True
 
         self._active_view = None  # type: Optional[View]
         self._views = {}  # type: Dict[str, View]
@@ -104,15 +104,6 @@ class Controller:
             Logger.log("e", "No view named %s found", name)
         except Exception as e:
             Logger.logException("e", "An exception occurred while switching views: %s", str(e))
-
-    def enableModelRendering(self) -> None:
-        self._is_model_rendering_enabled = True
-
-    def disableModelRendering(self) -> None:
-        self._is_model_rendering_enabled = False
-
-    def isModelRenderingEnabled(self) -> bool:
-        return self._is_model_rendering_enabled
 
     ##  Emitted when the list of views changes.
     viewsChanged = Signal()
@@ -281,6 +272,8 @@ class Controller:
                 Logger.log("w", "Controller does not have an active tool and could not default to Translate tool.")
 
         if tool_changed:
+            Selection.setFaceSelectMode(False)
+            Selection.clearFace()
             self.activeToolChanged.emit()
 
     ##  Emitted when the list of tools changes.
@@ -379,31 +372,71 @@ class Controller:
     def setToolsEnabled(self, enabled: bool) -> None:
         self._tools_enabled = enabled
 
+    def deleteAllNodesWithMeshData(self, only_selectable:bool = True) -> None:
+        Logger.log("i", "Clearing scene")
+        if not self.getToolsEnabled():
+            return
+
+        nodes = []
+        for node in DepthFirstIterator(self.getScene().getRoot()):
+            if not node.isEnabled():
+                continue
+            if not node.getMeshData() and not node.callDecoration("isGroup"):
+                continue  # Node that doesnt have a mesh and is not a group.
+            if only_selectable and not node.isSelectable():
+                continue  # Only remove nodes that are selectable.
+            if node.getParent() and cast(SceneNode, node.getParent()).callDecoration("isGroup"):
+                continue  # Grouped nodes don't need resetting as their parent (the group) is resetted)
+            nodes.append(node)
+        if nodes:
+            from UM.Operations.GroupedOperation import GroupedOperation
+            op = GroupedOperation()
+
+            for node in nodes:
+                from UM.Operations.RemoveSceneNodeOperation import RemoveSceneNodeOperation
+                op.addOperation(RemoveSceneNodeOperation(node))
+
+                # Reset the print information
+                self.getScene().sceneChanged.emit(node)
+
+            op.push()
+            from UM.Scene.Selection import Selection
+            Selection.clear()
+
     # Rotate camera view according defined angle
-    def rotateView(self, coordinate: str = "x", angle: int = 0) -> None:
+    def setCameraRotation(self, coordinate: str = "x", angle: int = 0) -> None:
         camera = self._scene.getActiveCamera()
         if not camera:
             return
-        self._camera_tool.setOrigin(Vector(0, 100, 0)) #type: ignore
+        camera.setZoomFactor(camera.getDefaultZoomFactor())
+        self._camera_tool.setOrigin(Vector(0, 100, 0))  # type: ignore
         if coordinate == "home":
-            camera.setPosition(Vector(0, 0, 700))
-            camera.setPerspective(True)
-            camera.lookAt(Vector(0, 100, 100))
-            self._camera_tool.rotateCam(0, 0) #type: ignore
+            camera.setPosition(Vector(0, 100, 700))
+            camera.lookAt(Vector(0, 100, 0))
+            self._camera_tool.rotateCamera(0, 0)  # type: ignore
         elif coordinate == "3d":
             camera.setPosition(Vector(-750, 600, 700))
-            camera.setPerspective(True)
             camera.lookAt(Vector(0, 100, 100))
-            self._camera_tool.rotateCam(0, 0) #type: ignore
-
+            self._camera_tool.rotateCamera(0, 0)  # type: ignore
         else:
             # for comparison is == used, because might not store them at the same location
             # https://stackoverflow.com/questions/1504717/why-does-comparing-strings-in-python-using-either-or-is-sometimes-produce
-            camera.setPosition(Vector(0, 0, 700))
-            camera.setPerspective(True)
-            camera.lookAt(Vector(0, 100, 0))
 
             if coordinate == "x":
-                self._camera_tool.rotateCam(angle, 0) #type: ignore
+                camera.setPosition(Vector(0, 100, 700))
+                camera.lookAt(Vector(0, 100, 0))
+                self._camera_tool.rotateCamera(angle, 0)  # type: ignore
             elif coordinate == "y":
-                self._camera_tool.rotateCam(0, angle) #type: ignore
+                if angle == 90:
+                    # Prepare the camera for top view, so no rotation has to be applied after setting the top view.
+                    camera.setPosition(Vector(0, 100, 100))
+                    camera.lookAt(Vector(0, 100, 0))
+                    self._camera_tool.rotateCamera(90, 0)  # type: ignore
+                    # Actually set the top view.
+                    camera.setPosition(Vector(0, 800, 1))
+                    camera.lookAt(Vector(0, 100, 1))
+                    self._camera_tool.rotateCamera(0, 0)  # type: ignore
+                else:
+                    camera.setPosition(Vector(0, 100, 700))
+                    camera.lookAt(Vector(0, 100, 0))
+                    self._camera_tool.rotateCamera(0, angle)  # type: ignore
